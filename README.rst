@@ -7,7 +7,7 @@ autoconst
 Description
 -----------
 
-Autoload package constants via Composer.
+Autoload PHP constants via Composer.
 
 Installation
 ------------
