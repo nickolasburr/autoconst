@@ -1,0 +1,7 @@
+{
+  "extra": {
+    "define": {
+      "MODULE": "Vendor_Package"
+    }
+  }
+}
