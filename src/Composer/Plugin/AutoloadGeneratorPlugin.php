@@ -1,0 +1,293 @@
+<?php
+/**
+ * AutoloadGeneratorPlugin.php
+ *
+ * @package     Autoconst\Composer\Plugin
+ * @copyright   Copyright (C) 2024 Nickolas Burr <nickolasburr@gmail.com>
+ */
+declare(strict_types=1);
+
+namespace Autoconst\Composer\Plugin;
+
+use Autoconst\Composer\Installer\PackageQueueManager;
+use Composer\Composer;
+use Composer\EventDispatcher\Event;
+use Composer\EventDispatcher\EventSubscriberInterface;
+use Composer\IO\IOInterface;
+use Composer\Package\PackageInterface;
+use Composer\Plugin\PluginInterface;
+use DateTime;
+use RuntimeException;
+
+use function array_keys;
+use function array_merge;
+use function fopen;
+use function fwrite;
+use function implode;
+use function is_array;
+use function sprintf;
+use function strtoupper;
+use function trim;
+use function uniqid;
+
+use const DIRECTORY_SEPARATOR;
+use const PHP_INT_MAX;
+
+final class AutoloadGeneratorPlugin implements PluginInterface, EventSubscriberInterface
+{
+    public const AUTOLOAD_FILE = 'autoload_constants.php';
+    public const COMPOSER_DIR = 'composer';
+    public const PSR_TYPES = ['psr-0', 'psr-4'];
+
+    /**
+     * {@inheritdoc}
+     */
+    public function activate(
+        Composer $composer,
+        IOInterface $io
+    ) {}
+
+    /**
+     * {@inheritdoc}
+     */
+    public function deactivate(
+        Composer $composer,
+        IOInterface $io
+    ) {}
+
+    /**
+     * @param Event $event
+     * @return void
+     * @throws RuntimeException
+     */
+    public function install(Event $event)
+    {
+        /** @var PackageInterface $root */
+        $root = $event->getComposer()->getPackage();
+
+        /** @var mixed[] $constants */
+        $constants = [];
+        $constants[] = $this->getPackageConstants($root);
+
+        do {
+            /** @var PackageInterface|null $package */
+            $package = PackageQueueManager::dequeue();
+
+            if ($package === null) {
+                break;
+            }
+
+            $constants[] = $this->getPackageConstants($package);
+        } while (true);
+
+        $constants = array_merge(
+            [],
+            ...$constants
+        );
+
+        /** @var string $vendorDir */
+        $vendorDir = $event->getComposer()
+            ->getConfig()
+            ->get('vendor-dir') ?? '';
+
+        /** @var string $filePath */
+        $filePath = implode(
+            DIRECTORY_SEPARATOR,
+            [
+                $vendorDir,
+                self::COMPOSER_DIR,
+                self::AUTOLOAD_FILE,
+            ]
+        );
+        $this->addConstantsToAutoloader($filePath, $constants);
+    }
+
+    /**
+     * @param PackageInterface $package
+     * @return mixed[]
+     */
+    private function getPackageConstants(PackageInterface $package): array
+    {
+        /** @var array $autoload */
+        $autoload = $package->getAutoload();
+
+        /** @var array[] $namespaces */
+        $namespaces = [];
+
+        /** @var string $psrType */
+        foreach (self::PSR_TYPES as $psrType) {
+            if (!empty($autoload[$psrType])) {
+                $namespaces[] = array_keys($autoload[$psrType]);
+            }
+        }
+
+        $namespaces = array_merge(
+            [],
+            ...$namespaces
+        );
+
+        /** @var mixed[] $extra */
+        $extra = $package->getExtra();
+
+        /** @var mixed[] $exports */
+        $exports = $extra['define'] ?? [];
+
+        /** @var array[] $constants */
+        $constants = [];
+
+        /** @var string $const */
+        /** @var mixed $value */
+        foreach ($exports as $const => $value) {
+            $constants[] = $this->getNamedConstants(
+                $const,
+                $value,
+                $namespaces
+            );
+        }
+
+        $constants = array_merge(
+            [],
+            ...$constants
+        );
+        return $constants;
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function uninstall(
+        Composer $composer,
+        IOInterface $io
+    ) {}
+
+    /**
+     * {@inheritdoc}
+     */
+    public static function getSubscribedEvents()
+    {
+        return [
+            'post-autoload-dump' => ['install', PHP_INT_MAX],
+        ];
+    }
+
+    /**
+     * @param string $filePath
+     * @param mixed[] $constants
+     * @return bool
+     * @throws RuntimeException
+     */
+    private function addConstantsToAutoloader(
+        string $filePath,
+        array $constants = []
+    ): bool {
+        /** @var string $listVar */
+        /** @var string $keyVar */
+        /** @var string $valueVar */
+        [
+            $listVar,
+            $keyVar,
+            $valueVar,
+        ] = [
+            uniqid('constList'),
+            uniqid('constKey'),
+            uniqid('constValue'),
+        ];
+
+        /** @var string $eol */
+        $eol = PHP_EOL;
+
+        /** @var string $dateTime */
+        $dateTime = (new DateTime())->format('Y-m-d @ H:i:s');
+
+        /** @var string $fileName */
+        $fileName = self::AUTOLOAD_FILE;
+
+        /** @var string $content */
+        $content = <<<EOS
+<?php
+/*
+ * {$fileName}
+ *
+ * THIS FILE IS AUTOGENERATED. DO NOT EDIT.
+ *
+ * FILE GENERATED @ {{$dateTime}}
+ */
+\$$listVar = [$eol
+EOS;
+
+        /** @var string $const */
+        /** @var mixed $value */
+        foreach ($constants as $const => $value) {
+            $content .= <<<EOS
+    "$const" => "$value",$eol
+EOS;
+        }
+
+        $content .= <<<EOS
+];
+
+foreach (\$$listVar as \$$keyVar => \$$valueVar) {
+    if (!defined(\$$keyVar)) {
+        define(\$$keyVar, \$$valueVar);
+    }
+}
+
+unset(\$$listVar, \$$keyVar, \$$valueVar);$eol
+EOS;
+
+        /** @var resource|bool $fp */
+        $fp = fopen($filePath, 'w');
+
+        if ($fp === false) {
+            throw new RuntimeException(
+                sprintf(
+                    'Unable to open file "%s"',
+                    self::AUTOLOAD_FILE
+                )
+            );
+        }
+
+        if (fwrite($fp, $content) === false) {
+            throw new RuntimeException(
+                sprintf(
+                    'Unable to write to file "%s"',
+                    self::AUTOLOAD_FILE
+                )
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * @param string $const
+     * @param mixed $value
+     * @param string[]|string $namespace
+     * @return string[]
+     */
+    private function getNamedConstants(
+        string $const,
+        mixed $value,
+        array|string $namespace = []
+    ): array {
+        if (!is_array($namespace)) {
+            $namespace = [$namespace];
+        }
+
+        /** @var mixed[] $result */
+        $result = [];
+
+        /** @var string $ns */
+        foreach ($namespace as $ns) {
+            /** @var string $constant */
+            $constant = sprintf(
+                '%s\\%s',
+                trim($ns, '\\'),
+                strtoupper($const)
+            );
+            $result[$constant] = $value;
+        }
+
+        return $result;
+    }
+}

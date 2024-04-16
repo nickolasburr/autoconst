@@ -1,0 +1,28 @@
+{
+  "name": "nickolasburr/autoconst",
+  "description": "Autoload PHP constants via Composer.",
+  "type": "composer-plugin",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Nickolas Burr",
+      "email": "nickolasburr@gmail.com"
+    }
+  ],
+  "require": {
+    "php": "^8.1",
+    "composer-plugin-api": "^2.0"
+  },
+  "autoload": {
+    "files": ["autoload.php"],
+    "psr-4": {
+      "Autoconst\\": "src"
+    }
+  },
+  "extra": {
+    "class": [
+      "Autoconst\\Composer\\Plugin\\AutoloadGeneratorPlugin",
+      "Autoconst\\Composer\\Plugin\\PackageInstallPlugin"
+    ]
+  }
+}
