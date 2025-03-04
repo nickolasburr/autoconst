@@ -3,7 +3,7 @@
  * AutoloadGeneratorPlugin.php
  *
  * @package     Autoconst\Composer\Plugin
- * @copyright   Copyright (C) 2024 Nickolas Burr <nickolasburr@gmail.com>
+ * @copyright   Copyright (C) 2025 Nickolas Burr <nickolasburr@gmail.com>
  */
 declare(strict_types=1);
 
@@ -247,7 +247,10 @@ EOS;
             );
         }
 
-        if (fwrite($fp, $content) === false) {
+        /** @var int|bool $result */
+        $result = fwrite($fp, $content);
+
+        if ($result === false) {
             throw new RuntimeException(
                 sprintf(
                     'Unable to write to file "%s"',
