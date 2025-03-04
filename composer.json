@@ -14,9 +14,9 @@
     "composer-plugin-api": "^2.0"
   },
   "autoload": {
-    "files": ["autoload.php"],
+    "files": ["autoconst.php"],
     "psr-4": {
-      "Autoconst\\": "src"
+      "Autoconst\\": "src/"
     }
   },
   "extra": {
